@@ -1,0 +1,5 @@
+# 已在 Apple M5 / macOS 27 / Python 3.14 上实测通过的组合。
+# 若你已有可用环境，只需保证 torch 的 MPS 后端可用、transformers 能 import PreTrainedModel。
+torch==2.15.0
+transformers==5.22.1
+tokenizers>=0.22

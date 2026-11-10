@@ -1,0 +1,29 @@
+# ---- Python 运行时 ----
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.DS_Store
+
+# ---- 联网下载的物料（语料 / 分词器 / 官方权重）----
+# stage0_setup.py 与 stage5_sft_data.py 会自动下载，无需入库
+data/
+
+# ---- 训练产物：模型权重 ----
+checkpoints/
+sft_checkpoints/
+*.pth
+*.pt
+*.safetensors
+*.bin
+*.onnx
+
+# ---- 运行日志 / loss 曲线（仓库自带 examples/ 下的样例）----
+loss_log.tsv
+sft_loss_log.tsv
+loss_log_run*.tsv
+*.log
+
+# ---- 本地私有配置 ----
+.env
+*.local
