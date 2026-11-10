@@ -65,8 +65,9 @@ bash setup.sh                       # macOS / Linux；建 .venv，不动系统 P
 
 # 第 2 章：SFT，让模型学会对话
 <venv-python> stage5_sft_data.py
-<venv-python> stage6_sft_train.py   # 约 30 分钟（外推值，完整训练未实测）
-<venv-python> stage7_sft_chat.py
+<venv-python> stage6_sft_train.py   # M5 实测 1,875 步 / 28.1 分钟
+<venv-python> stage7_sft_chat.py    # 固定 4 题 + 三组教学对照
+<venv-python> play_sft.py           # 交互提问、换权重对比、批量测试
 ```
 
 `<venv-python>` 按平台替换；**脚本运行时打印的「下一步」会自动给出你平台上的正确路径**。
@@ -119,7 +120,7 @@ bash setup.sh                       # macOS / Linux；建 .venv，不动系统 P
 | 第 4 阶段 · 推理续写 | `stage4_generate.py`、`play_pretrain.py` |
 | 第 2 章 · SFT 语料 / ChatML / labels 掩码 | `stage5_sft_data.py`、`shared/sft_dataset.py` |
 | 第 2 章 · SFT 训练 | `stage6_sft_train.py` |
-| 第 2 章 · 对话服务 | `stage7_sft_chat.py` |
+| 第 2 章 · 对话服务 | `stage7_sft_chat.py`、`play_sft.py` |
 
 完整的逐代码块映射与每一步该看懂什么，见 [GUIDE.md](GUIDE.md) 和 [COMPARISON.md](COMPARISON.md)。
 
@@ -142,9 +143,22 @@ bash setup.sh                       # macOS / Linux；建 .venv，不动系统 P
 | loss 曲线 | 8.110 → **3.029**，降幅 5.08；学习率 1e-3 → 1e-4 余弦衰减 |
 | 续写效果 | 中文通顺、有主题词，但内容会胡说、重复；英文 prompt 输出破碎 |
 | 权重健康 | `missing=0 / unexpected=0`，FP32，无 NaN/Inf |
-| SFT 阶段 | 全链路 20 步冒烟通过（初始 loss 1.906）；**完整 1,875 步训练未跑完**，最终对话质量未经实测，约 30 分钟为前 200 步外推 |
+| SFT 阶段 | 完整 **1,875 步 / 28.1 分钟**（M5 / MPS / BF16），loss **1.860 → 1.647**，3 个 FP32 checkpoint（各约 263 MB） |
+| SFT 对话效果 | 会按 ChatML 格式回答，但内容会胡说（「1+1」答 2.5、自称 Qwen）；`play_sft.py --compare` 可直接观察「续写 → 对话」 |
 
-**诚实说明**：预训练模型只会续写、不会对话，这是网页设计如此；SFT 赋予的是「对话行为」而非知识，64M 级模型仍会有事实错误（官方权重实测把 1+1 答成 3）。本项目的终点是教学现象，不是可用助手。
+**诚实说明**：预训练模型只会续写、不会对话，这是网页设计如此；SFT 赋予的是「对话行为」而非知识，64M 级模型仍会有事实错误（自己训的权重把 1+1 答成 2.5，官方权重答成 3）。本项目的终点是教学现象，不是可用助手。
+
+### 自定义测试 SFT 效果（不训练，只读权重）
+
+```bash
+<venv-python> play_sft.py                                        # 交互提问
+<venv-python> play_sft.py --list                                 # 列出可对比的权重
+<venv-python> play_sft.py --compare "1+1等于几？"                # 起点 / 自己训的 / 官方 三方对照
+<venv-python> play_sft.py --ckpt sft_official_step1000.pth "你好" # 对比中间 checkpoint
+<venv-python> play_sft.py --batch questions.txt --out result.tsv  # 自定义问题集批量跑
+```
+
+交互里用 `:temp` / `:top` / `:len` / `:greedy` / `:sys` / `:multi` / `:ckpt` 调参数与热切换权重；`--greedy` 让结果可复现。详见 [GUIDE.md](GUIDE.md) 第十节。
 
 ## 九、目录结构
 
@@ -160,6 +174,7 @@ bash setup.sh                       # macOS / Linux；建 .venv，不动系统 P
 ├── requirements.txt
 ├── stage0_setup.py  ...  stage7_sft_chat.py    两章共 8 个阶段脚本
 ├── play_pretrain.py          交互续写小工具
+├── play_sft.py               交互对话 / 权重对比 / 批量测试小工具
 ├── shared/
 │   ├── mini_mind_config.py    MiniMind 模型定义（上游原版）
 │   ├── pretrain_dataset.py    预训练数据集（上游原版）

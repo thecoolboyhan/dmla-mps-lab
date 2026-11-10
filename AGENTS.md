@@ -25,7 +25,7 @@
 | `stage1_tokenizer.py` / `stage2_model.py` | 分词器演示、参数量手算、显存重算 | 本项目原创（教学脚本） |
 | `stage3_train.py` / `stage6_sft_train.py` | 预训练 / SFT **训练循环** | 网页代码块改编，算法逐行保留 |
 | `stage4_generate.py` / `stage7_sft_chat.py` | 续写推理 / ChatML 对话 + 教学对照组 | 网页代码块改编 |
-| `play_pretrain.py` | 交互续写 REPL，只读权重 | 本项目原创 |
+| `play_pretrain.py` / `play_sft.py` | 交互续写 REPL / 交互对话 + 权重对比 + 批量测试，均只读权重 | 本项目原创 |
 | `shared/mini_mind_config.py` | `MiniMindConfig` / `MiniMindForCausalLM` 模型定义 | **上游原版**，仅去演示 print |
 | `shared/pretrain_dataset.py` | 预训练 Dataset | **上游原版**，原样保留 |
 | `shared/sft_dataset.py` | SFT Dataset + ChatML + labels 掩码 | 上游改编，**仅替换 IO**（`datasets.load_dataset` → 纯 Python `json.loads`） |
@@ -49,7 +49,7 @@
 | 用途 | 发布、给别人用 | 用户实际跑实验 |
 | 是否为 git 仓库 | 是（`main`，remote `github.com/thecoolboyhan/dmla-mps-lab.git`） | 否 |
 
-**规则**：修改任何共有代码文件（`config.py`、`stage0~7`、`play_pretrain.py`、`shared/*.py`、`setup.sh`、`setup.ps1`、`requirements.txt`、`GUIDE.md`）后，**两份都要同步，逐字节一致**。尤其注意 `stage0`/`stage5` 依赖 `shared/download.py`，新增模块忘记同步会直接 import 失败。
+**规则**：修改任何共有代码文件（`config.py`、`stage0~7`、`play_pretrain.py`、`play_sft.py`、`shared/*.py`、`setup.sh`、`setup.ps1`、`requirements.txt`、`GUIDE.md`、`AGENTS.md`）后，**两份都要同步，逐字节一致**。尤其注意 `stage0`/`stage5` 依赖 `shared/download.py`，新增模块忘记同步会直接 import 失败。
 
 提交公开发布仓库时用**仓库级** git 身份（`thecoolboyhan <thecoolboyhan@users.noreply.github.com>`），不要用全局身份——全局配置带有不应出现在公开 commit 里的邮箱。
 
@@ -90,8 +90,9 @@ bash setup.sh                    # Windows: powershell -ExecutionPolicy Bypass -
 <venv-python> stage4_generate.py
 <venv-python> play_pretrain.py   # 可选，只读权重
 <venv-python> stage5_sft_data.py # 首次会联网下载语料 + 官方权重
-<venv-python> stage6_sft_train.py
+<venv-python> stage6_sft_train.py # 1,875 步；M5 实测 28.1 分钟
 <venv-python> stage7_sft_chat.py
+<venv-python> play_sft.py        # 可选，自定义测试对话效果
 ```
 
 `stage3` 需要 `stage0` 产物；`stage6` 需要 `stage5` 产物；`stage7` 需要 `stage6` 产物。切 `PRESET` 后各阶段必须用**同一档**，否则权重结构不匹配。
@@ -102,7 +103,9 @@ bash setup.sh                    # Windows: powershell -ExecutionPolicy Bypass -
 
 - Apple M5 / 16GB 实测：standard 档 **15,000 步 / 86.3 分钟 / 平均 0.345 s/step**，loss **8.110 → 3.029**，10 个 FP32 checkpoint（各约 61 MB），`missing=0 unexpected=0`。
 - 随机基线 `ln(6400) ≈ 8.76`。中文续写通顺但会胡说、重复；英文 prompt 破碎（中文语料 + 6400 小词表）。
-- **完整 SFT 1,875 步训练未跑完**，最终对话质量未实测；文档里的「约 30 分钟」是前 200 步外推。不要写成「已验证可对话」。
+- **2026-11-10 完整 SFT 已实跑**：1,875 步 / 1,683.5 秒（28.1 分钟），loss **1.860 → 1.647**，38 个记录点，3 个 FP32 checkpoint（各约 263 MB）。
+- SFT 后对话实测：会按 ChatML 格式回答，但「1+1」答 2.5、自我介绍自称 Qwen；官方 `full_sft_768.pth` 同量级胡说。**格式学会 ≠ 事实正确**，与网页结论一致。
+- `play_sft.py` 是只读的自定义测试工具：`--list` / `--compare` / `--ckpt` / `--batch` / `--greedy` 均已实跑验证；不要把它改成训练脚本。
 - **CUDA 分支只做了逻辑测试**，本机没有 N 卡，真机完整训练未实测。不要声称「已在 NVIDIA GPU 上验证」。
 - next-token 的**右移发生在模型 `forward`**：`logits[..., :-1, :]` 对 `labels[..., 1:]`；Dataset 只把 PAD 位置设为 `-100`，`labels = input_ids.clone()` 并没有右移。
 - `stage4_generate.py` 的 `[4/4]` 输出**必然是乱码**，那是脚本故意打印的「随机初始化对照组」。看到乱码不要判定训练失败，判断依据是 `[3/4]` 与 `loss_log.tsv`。
@@ -166,7 +169,12 @@ LAB_DEVICE=cpu  PRESET=quick LAB_LIMIT_STEPS=9 <venv-python> stage3_train.py   #
 PRESET=quick LAB_LIMIT_STEPS=2 <venv-python> stage3_train.py                  # MPS 无回归
 LAB_DEVICE=cpu SFT_BASE=official LAB_SFT_LIMIT_STEPS=2 <venv-python> stage6_sft_train.py
 
-# [5] 两份目录共有文件一致性：对第 2 节列出的文件逐个 diff -q
+# [5] 推理工具只读性：确认不写 checkpoint / 不覆盖 loss 日志
+<venv-python> play_sft.py --list
+<venv-python> play_sft.py --greedy --len 24 "1+1等于几？"
+printf ':params\n:q\n' | <venv-python> play_sft.py
+
+# [6] 两份目录共有文件一致性：对第 2 节列出的文件逐个 diff -q
 ```
 
 **不要**在项目根目录直接跑 `LAB_LIMIT_STEPS` 冒烟：`stage3` 开头会 `LOSS_LOG.write_text(...)` **清空用户真实 loss 曲线**，`stage6` 同理，且会写出新 checkpoint。
@@ -194,7 +202,7 @@ LAB_DEVICE=cpu SFT_BASE=official LAB_SFT_LIMIT_STEPS=2 <venv-python> stage6_sft_
 
 - [ ] NVIDIA GPU 真机上的完整训练与耗时（CUDA 分支目前只有逻辑测试）
 - [ ] Windows 原生端到端跑通（脚本与安装脚本已适配，未实机验证）
-- [ ] SFT 完整 1,875 步训练与最终对话质量
+- [x] ~~SFT 完整 1,875 步训练与最终对话质量~~（2026-11-10 实跑完成，见第 5 节）
 - [ ] Intel Mac / macOS x86_64 的支持方案
 - [ ] ModelScope 境外访问的可选镜像
 

@@ -273,8 +273,8 @@ stage0 仍用分段 HTTP Range 采样语料，是 1.2 GB 全量的一个子集�
 
 ### 逐步操作
 
-> 下面三步**由你自己执行**。材料只做过 20 步冒烟校准与单步耗时实测，
-> 正式 SFT 训练没有替你跑；数据和官方权重已全部备好，直接开跑即可。
+> 下面三步**由你自己执行**：仓库不含任何权重，训练都在读者本机完成。
+> 2026-11-10 已在 M5 上完整跑过一遍 1,875 步，实测数字见本节末尾「实测依据」。
 
 ```bash
 cd dmla-mps-lab
@@ -282,12 +282,16 @@ cd dmla-mps-lab
 # 5 · 实验准备 + SFT 数据集（约 1 分钟，下载 86MB 语料 + 131MB 权重）
 .venv/bin/python stage5_sft_data.py
 
-# 6 · SFT 训练（约 30 分钟；先冒烟可选）
+# 6 · SFT 训练（M5 实测 28.1 分钟；先冒烟可选）
 LAB_SFT_LIMIT_STEPS=20 .venv/bin/python stage6_sft_train.py    # 可选冒烟
 .venv/bin/python stage6_sft_train.py                            # 正式
 
 # 7 · 对话（约 1 分钟）
 .venv/bin/python stage7_sft_chat.py
+
+# 8 · 自定义测试（不训练，只读权重；详见第十节）
+.venv/bin/python play_sft.py
+.venv/bin/python play_sft.py --compare "1+1等于几？
 
 # 对照实验：用自己 stage3 训的降配 base 再走一遍
 SFT_BASE=local .venv/bin/python stage5_sft_data.py
@@ -341,9 +345,13 @@ ln(6400)≈8.76，因为起点已是会说话的模型，且只有回答部分�
   SFT 初始 loss 1.906、stage7 的 [A] 续写 / [B] 对话均生成成功。
 - 官方 `full_sft_768.pth` 单独实测：生成 64 token 仅 0.6–1.7 秒，能说完整句子、按对话格式回答，
   但会胡说（「1+1」答 3）。**能对话 ≠ 事实正确**，这正是 64M 模型的真实上限。
-- **完整 1,875 步正式 SFT 训练未跑完**（校准只跑到 800 步便停止，loss 1.86 → 1.75）。
-  因此上面 30 分钟是前 200 步实测外推，「训练完的对话质量」**未经实测**，留给你自己跑。
-  校准产生的半成品 checkpoint / loss 日志已移出项目，当前 `sft_checkpoints/` 为空。
+- **2026-11-10 完整实跑更新**：1,875 步 / 1 epoch 全部跑完，`sft_loss_log.tsv` 共 38 个记录点，
+  耗时 **1,683.5 秒（28.1 分钟）**，loss **1.860 → 1.647**；`sft_checkpoints/` 有 3 个 FP32 权重
+  （`step1000` / `epoch1` / `full_sft_official`，各约 263 MB），`missing=0 unexpected=0`。
+- 实跑后的对话实测：用 ChatML 提问会给出助手式回答，但仍会胡说（「1+1」答 2.5）、
+  自我介绍时自称 Qwen（SFT 语料里带的身份）；与官方 `full_sft_768.pth` 同量级。
+  **格式学会了，知识与推理没增加** —— 与网页结论一致。
+- 想自己验证，用 `play_sft.py`（第十节）：交互提问、热切换权重、三方对照、批量问题集都支持。
 
 ### 已为你备好的文件（不用再下载）
 
@@ -407,3 +415,40 @@ ln(6400)≈8.76，因为起点已是会说话的模型，且只有回答部分�
 
 脚本只读 `checkpoints/pretrain_<PRESET>_final.pth`，不训练、不写任何文件；
 换档位用 `PRESET=quick .venv/bin/python play_pretrain.py`（需有对应档位的权重）。
+
+---
+
+## 十·补、自定义测试 SFT 对话模型（play_sft.py）
+
+`stage7` 的问题是写死的 4 个，用来看教学对照；想自己随便问、换权重、调参数，用 `play_sft.py`：
+
+```bash
+.venv/bin/python play_sft.py                                   # 交互提问
+.venv/bin/python play_sft.py "1+1等于几？"                      # 单次提问
+.venv/bin/python play_sft.py --list                             # 列出可对比权重
+.venv/bin/python play_sft.py --compare "1+1等于几？"            # 起点 / 自己训的 / 官方 三方对照
+.venv/bin/python play_sft.py --ckpt official "你好"             # 换官方 SFT 权重
+.venv/bin/python play_sft.py --ckpt sft_official_step1000.pth "你好"   # 对比中间 checkpoint
+.venv/bin/python play_sft.py --batch questions.txt --out result.tsv      # 自定义问题集批量跑
+```
+
+常用参数：`--len 96` / `--temp 0.85` / `--top 0.85` / `--sys "提示词"` / `--greedy`（贪心，结果可复现）。
+
+| 测试维度 | 怎么做 |
+|---|---|
+| 换问题 | 交互里直接输入，或 `--batch` 给一个每行一题的 txt（`#` 开头的行跳过） |
+| 换权重 | `--ckpt mine` / `base` / `official`，或任意 checkpoint 文件名；交互里 `:ckpt` 热切换 |
+| 看训练进度 | 对比 `--ckpt sft_official_step1000.pth` 与最终的 `full_sft_*.pth` |
+| 调采样 | `:temp` / `:top` / `:len` / `:greedy`；`--greedy` 便于复现同一结果 |
+| 多轮上下文 | `:multi` 打开（默认关，小模型多轮容易跑偏）；`:reset` 清历史 |
+| 看格式转变 | `--compare`：base 只会顺着模板续写，mine / official 才会「回答」 |
+
+实测对照（`--greedy --len 40 "1+1等于几？"`）：
+
+| 权重 | 输出 |
+|---|---|
+| `base`（SFT 起点） | `2+3=?The input is a string of characters...`（顺着模板续写） |
+| `mine`（你自己训的） | `1 + 1 = 2.5 或 3 + 4 = 5.5 ...`（格式对了，算术错了） |
+| `official`（网页标准答案） | `1 + 1 = 2 ? 2 + 1 = 3 ? ...`（同样胡说） |
+
+`play_sft.py` 只读权重、不训练、不写 checkpoint；权重结构与 `SFT_BASE` 不匹配会直接报错，而不是静默乱码。
