@@ -37,7 +37,7 @@
 | `stage0_setup.py` / `stage5_sft_data.py` | 网页「实验准备」的 `dmla data` 与文件检查 | 改为 ModelScope HTTP Range 直链下载（调用 `shared/download.py` 的标准库实现，不依赖 curl / Git LFS / Docker），并按 token 长度筛出可完整放进序列的短对话 |
 | `stage1/2/4/7` 等脚本 | 对应网页各阶段演示 / 推理代码块 | 设备改为自动检测、路径本地化；保留网页的 prompt、ChatML 模板与全部采样参数 |
 | `GUIDE.md` 中引用的网页原文与代码块说明 | DMLA 网页正文 | 引用处均标注章节链接，仅作学习对照 |
-| `shared/download.py`、`config.py`、`play_pretrain.py`、`setup.sh`、`setup.ps1`、`README.md`、`COMPARISON.md`、`examples/` | **本项目原创**（非上游改编） | 标准库 HTTP Range 下载器、配置中心与设备检测、交互续写工具、跨平台安装脚本、学习手册与逐项差异说明 |
+| `shared/download.py`、`config.py`、`play_pretrain.py`、`setup.sh`、`setup.ps1`、`README.md`、`GUIDE.md`、`COMPARISON.md`、`AGENTS.md`、`examples/` | **本项目原创**（非上游改编） | 标准库 HTTP Range 下载器、配置中心与设备检测、交互续写工具、跨平台安装脚本、学习手册、逐项差异说明与 AI 接手上下文 |
 
 训练流程与算法思路仍来自上述网页章节；本项目原创部分只负责运行环境、数据获取、配置与教学组织，**不改变模型定义与训练算法**。
 

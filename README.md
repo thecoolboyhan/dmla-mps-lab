@@ -9,7 +9,7 @@
 - [Transformer 模型预训练实验](https://ai.icyfenix.cn/language-models/architecture-basics/llm-pretrain-experiment.html)（第 1 章）
 - [工程实训：SFT 模型对话实验](https://ai.icyfenix.cn/language-models/pretraining/llm-sft-experiment.html)（第 2 章）
 
-📄 **与网页原版的逐项差异（环境 / 超参 / 代码 / 能得到什么）见 [COMPARISON.md](COMPARISON.md)**；逐步操作手册见 **[GUIDE.md](GUIDE.md)**。
+📄 **与网页原版的逐项差异（环境 / 超参 / 代码 / 能得到什么）见 [COMPARISON.md](COMPARISON.md)**；逐步操作手册见 **[GUIDE.md](GUIDE.md)**；AI 助手接手本项目时请先读 **[AGENTS.md](AGENTS.md)**（约束、不变量与验证方法）。
 
 ---
 
@@ -148,6 +148,7 @@ bash setup.sh                       # macOS / Linux；建 .venv，不动系统 P
 
 ```
 ├── README.md                 本说明
+├── AGENTS.md                 给接手项目的 AI 助手：约束 / 不变量 / 验证方法
 ├── COMPARISON.md             与网页原版的逐项差异（详细）
 ├── GUIDE.md                  中文学习手册（逐步操作 / 验收 / 对照实验）
 ├── NOTICE.md                 上游署名、来源与修改说明
