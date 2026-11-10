@@ -4,6 +4,8 @@
 > **没有 NVIDIA 独立显卡、显存或算力不够时，也能把「预训练 → SFT 对话」两章完整走一遍。**
 > macOS / Linux / Windows 通用，设备自动检测 **CUDA > MPS > CPU**；仅用于个人学习，非商业用途。
 
+**维护者**：[thecoolboyhan](https://github.com/thecoolboyhan) · **博客**：[韩永发的博客](https://thecoolboyhan.github.io)
+
 配套文章：
 
 - [Transformer 模型预训练实验](https://ai.icyfenix.cn/language-models/architecture-basics/llm-pretrain-experiment.html)（第 1 章）
@@ -176,3 +178,13 @@ bash setup.sh                       # macOS / Linux；建 .venv，不动系统 P
 - **仅供个人学习与非商业教学使用**；转载、改编请保留署名、链接与相同许可证
 
 如果这些条款与你的使用场景不符，请直接阅读原文网页，不要分发本仓库。
+
+## 十一、关于作者
+
+本项目由 [thecoolboyhan](https://github.com/thecoolboyhan) 整理维护 —— 读《设计机器学习应用系统》的大语言模型章节时，因为手头没有独显，顺手做了这套给「配置不够的读者」用的补充实验材料。
+
+- 博客：[韩永发的博客](https://thecoolboyhan.github.io)
+- 项目介绍文章：[没有独显，也能走完 LLM 预训练与 SFT 两章](https://thecoolboyhan.github.io/p/dmla-mps-lab/)
+- GitHub：[thecoolboyhan](https://github.com/thecoolboyhan)
+
+欢迎提 Issue 交流；如果这套材料帮你把两章跑通了，点个 Star ⭐ 就好。

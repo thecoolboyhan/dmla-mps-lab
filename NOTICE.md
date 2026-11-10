@@ -71,3 +71,11 @@ ModelScope 镜像仓库：
 - **非商业性使用**：不得用于商业目的或商业环境内的培训/产品化。
 - **相同方式共享**：分发或改编本项目时，必须继续使用 CC BY-NC-SA 4.0 并保留本署名文件。
 - 本项目不是 DMLA 官方项目，与作者无关联；内容若有误，以原网页为准。
+
+## 六、本项目维护者
+
+上面各节记录的是**上游作品**的署名、来源与改编情况；本项目的整理维护信息如下：
+
+- GitHub：[thecoolboyhan](https://github.com/thecoolboyhan)
+- 博客：[韩永发的博客](https://thecoolboyhan.github.io)
+- 项目介绍文章：<https://thecoolboyhan.github.io/p/dmla-mps-lab/>
