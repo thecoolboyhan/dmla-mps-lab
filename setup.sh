@@ -14,7 +14,7 @@ uv python install 3.14
 echo "[2/3] 创建 .venv ..."
 uv venv --python 3.14 .venv
 
-echo "[3/3] 安装依赖（--no-cache 避免沙箱下清理缓存失败）..."
+echo "[3/3] 安装依赖（--no-cache 保证可重复、不残留缓存）..."
 PYTHONDONTWRITEBYTECODE=1 TMPDIR="${TMPDIR:-/tmp}" \
   uv pip install --no-cache --python .venv/bin/python -r requirements.txt
 
@@ -22,3 +22,4 @@ echo
 echo "完成。之后所有脚本都用 .venv/bin/python 运行，例如："
 echo "  .venv/bin/python stage0_setup.py"
 echo "  .venv/bin/python stage1_tokenizer.py"
+echo 'Windows 请改用 setup.ps1，解释器路径为 .venv\Scripts\python.exe。'

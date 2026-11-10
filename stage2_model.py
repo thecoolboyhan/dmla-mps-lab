@@ -9,6 +9,7 @@
 """
 import math
 
+from config import PY_CMD
 from config import (BATCH_SIZE, HIDDEN_SIZE, MAX_SEQ_LEN, NUM_LAYERS, banner,
                     compare_with_web)
 from shared.mini_mind_config import MiniMindConfig, MiniMindForCausalLM
@@ -64,6 +65,7 @@ print(f"  前向激活({NUM_LAYERS} 层, Flash Attn)  {activations:.2f} GB   [�
 print(f"  Logits + Loss                 {logits:.2f} GB   [网页原版 1.17 GB]")
 print(f"  运行时 + 碎片化               ~{runtime:.2f} GB +15%")
 print(f"  估算峰值                      {peak:.2f} GB   [网页原版 7.4 GB]")
-print(f"  → 你的 16GB 统一内存完全装得下；standard 档实测 MPS 驱动侧占用约 2.2 GB")
-print("\n下一步： .venv/bin/python stage3_train.py")
+print("  → standard 档峰值远低于常见显存/内存配置；"
+      "Apple M5 上实测 MPS 驱动侧占用约 2.2 GB（其他后端数值会不同）")
+print(f"\n下一步： {PY_CMD} stage3_train.py")
 print("（建议先 PRESET=quick 跑一遍全流程，再切 standard 正式训练）")

@@ -1,5 +1,8 @@
-# 已在 Apple M5 / macOS 27 / Python 3.14 上实测通过的组合。
-# 若你已有可用环境，只需保证 torch 的 MPS 后端可用、transformers 能 import PreTrainedModel。
+# 这组版本已在 Apple M5 / macOS 27 / Python 3.14 上实测通过；
+# 同一版本在 Linux x86_64 / aarch64、Windows amd64 上都有官方 wheel。
+# 运行后端由 config.py 自动检测（CUDA > MPS > CPU），无需改动本文件。
+# 已有环境时，只需保证 torch 与 transformers 能正常 import（Python >= 3.11）。
+# 纯 CPU 且不想拉 CUDA 运行时，可改用 PyTorch 官方 CPU index 单独安装 torch。
 torch==2.15.0
 transformers==5.22.1
 tokenizers>=0.22

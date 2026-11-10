@@ -2,45 +2,24 @@
 对应网页「实验准备」一节：验证语料与分词器文件、准备数据。
 
 网页里这一步由 DMLA 沙箱的 `dmla data` 完成（全量 1.2 GB + Git LFS）。
-本机改用 HTTP Range 从 ModelScope 分段采样，只下 DOWNLOAD_MB 这么多，
+本项目改用 Python 标准库的 HTTP Range 从 ModelScope 分段采样，只下 DOWNLOAD_MB 这么多，
 再随机抽 SUBSET_SAMPLES 行写成 train_subset.jsonl —— 之后的 Dataset 代码一行不改。
+下载器在 shared/download.py，不依赖 curl / Git LFS / Docker，三个平台一致。
 
 额外做一件网页没做但对理解很有帮助的事：统计真实语料的 token 长度分布，
 让你亲眼看到「固定 padding 到 max_seq_len 到底浪费了多少算力」。
 """
 import json
 import random
-import subprocess
 import sys
 from pathlib import Path
 
-from config import (BASE_URL, CORPUS_SAMPLE, CORPUS_URL, DATA_DIR, DOWNLOAD_MB,
-                    MAX_SEQ_LEN, SUBSET_SAMPLES, TOKENIZER_DIR, TRAIN_SUBSET, banner)
+from config import (BASE_URL, CORPUS_SAMPLE, CORPUS_URL, DATA_DIR, DEVICE,
+                    DEVICE_TYPE, DOWNLOAD_MB, MAX_SEQ_LEN, PY_CMD,
+                    SUBSET_SAMPLES, TOKENIZER_DIR, TRAIN_SUBSET, banner)
+from shared.download import fetch as http_fetch, probe_size
 
 random.seed(42)
-
-
-def fetch(url: str, out: Path, byte_range: str | None = None) -> tuple[int, str]:
-    cmd = ["curl", "-sSL", "--max-time", "300", "-o", str(out), "-w", "%{http_code}"]
-    if byte_range:
-        cmd += ["-r", byte_range]
-    cmd.append(url)
-    r = subprocess.run(cmd, capture_output=True, text=True)
-    return int(r.stdout.strip() or "0"), r.stderr.strip()
-
-
-def probe_size(url: str) -> int:
-    # 必须用 GET + -D - 而不是 HEAD：这个 CDN 的 HEAD 在 302 后不回 Content-Range
-    r = subprocess.run(["curl", "-sSL", "--max-time", "30", "-D", "-",
-                        "-o", "/dev/null", "-r", "0-0", url],
-                       capture_output=True, text=True)
-    for line in r.stdout.splitlines():
-        if line.lower().startswith("content-range:"):
-            return int(line.split("/")[-1].strip())
-    for line in r.stdout.splitlines():
-        if line.lower().startswith("content-length:"):
-            return int(line.split(":")[-1].strip())
-    return 0
 
 
 def ensure_tokenizer():
@@ -49,9 +28,9 @@ def ensure_tokenizer():
         if dst.exists() and dst.stat().st_size > 1000:
             print(f"  [已有] {name}  {dst.stat().st_size:,} bytes")
             continue
-        code, err = fetch(f"{BASE_URL}/{name}", dst)
+        code = http_fetch(f"{BASE_URL}/{name}", dst)
         if code != 200 or not dst.exists():
-            raise SystemExit(f"下载 {name} 失败: HTTP {code} {err}")
+            raise SystemExit(f"下载 {name} 失败: HTTP {code}；请检查网络或代理设置")
         print(f"  [下载] {name}  {dst.stat().st_size:,} bytes")
 
 
@@ -71,7 +50,11 @@ def build_corpus_pool() -> bytes:
     for i in range(seg):
         start = int(total * i / seg) if total else i * per * 3
         end = start + per - 1
-        code, err = fetch(CORPUS_URL, tmp, f"{start}-{end}")
+        try:
+            code = http_fetch(CORPUS_URL, tmp, f"{start}-{end}")
+        except Exception as e:
+            print(f"    segment {i+1}/{seg}: 跳过 ({type(e).__name__}: {e})")
+            continue
         if code == 206 and tmp.exists() and tmp.stat().st_size > 1000:
             blobs.append(tmp.read_bytes())
             print(f"    segment {i+1}/{seg}: {tmp.stat().st_size/1024/1024:.0f} MB  ok")
@@ -81,9 +64,9 @@ def build_corpus_pool() -> bytes:
 
     if not blobs:  # 降级：直接取文件开头一段
         print("  分段采样不可用，降级为单段下载 ...")
-        code, err = fetch(CORPUS_URL, tmp, f"0-{DOWNLOAD_MB*1024*1024-1}")
+        code = http_fetch(CORPUS_URL, tmp, f"0-{DOWNLOAD_MB*1024*1024-1}")
         if code not in (200, 206):
-            raise SystemExit(f"语料下载失败: HTTP {code} {err}")
+            raise SystemExit(f"语料下载失败: HTTP {code}；请检查网络或代理设置")
         blobs = [tmp.read_bytes()]
         tmp.unlink(missing_ok=True)
 
@@ -98,13 +81,14 @@ def main():
     banner()
     print("\n[1/4] 环境自检")
     import torch, transformers
-    from config import DEVICE
+    _mps = getattr(torch.backends, "mps", None)
     print(f"  Python       {sys.version.split()[0]}")
     print(f"  torch        {torch.__version__}")
     print(f"  transformers {transformers.__version__}")
-    print(f"  MPS 可用     {torch.backends.mps.is_available()}  → 使用 {DEVICE}")
-    if DEVICE.type != "mps":
-        print("  ⚠ 未启用 MPS，训练会退回 CPU，耗时会长一个数量级")
+    print(f"  CUDA 可用    {torch.cuda.is_available()}  |  MPS 可用 {bool(_mps and _mps.is_available())}")
+    print(f"  选定后端     {DEVICE_TYPE.upper()}  →  {DEVICE}")
+    if DEVICE_TYPE == "cpu":
+        print("  ⚠ 无可用 GPU，训练走 CPU，耗时长一个数量级；建议先 PRESET=quick 验证链路")
 
     print("\n[2/4] 下载分词器文件")
     ensure_tokenizer()
@@ -149,7 +133,7 @@ def main():
     print(f"  有效 token 保留率 {kept/sum(lens)*100:.1f}%  |  "
           f"padding 计算浪费 {100-kept/(len(lens)*(MAX_SEQ_LEN-2))*100:.1f}%")
     print("\n  → 网页原版 seq=512 时这一项约 59%，这就是缩短序列几乎不损效果的依据。")
-    print("\n准备完成。下一步： .venv/bin/python stage1_tokenizer.py")
+    print(f"\n准备完成。下一步： {PY_CMD} stage1_tokenizer.py")
     print("（建议同时打开网页『第一阶段：分词器』对照阅读）")
 
 

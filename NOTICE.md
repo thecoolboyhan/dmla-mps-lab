@@ -1,6 +1,6 @@
 # 署名与来源说明
 
-本项目是《设计机器学习应用系统》(DMLA) 相关教学实验的 **Apple Silicon 适配 / 降配衍生作品**，仅供个人学习与非商业教学使用。
+本项目是《设计机器学习应用系统》(DMLA) 相关教学实验的 **多平台适配 / 降配衍生作品**（CUDA / MPS / CPU），仅供个人学习与非商业教学使用。
 
 ## 一、上游作品
 
@@ -32,13 +32,14 @@
 | `shared/mini_mind_config.py` | DMLA `local-server/shared/llm/mini_mind_config.py`（对应网页第 2 阶段代码块） | 取纯模型定义版，去掉网页代码块末尾的演示 `print`；结构未改 |
 | `shared/pretrain_dataset.py` | DMLA `local-server/shared/llm/pretrain_dataset.py`（对应网页第 1 阶段代码块） | 原样保留 |
 | `shared/sft_dataset.py` | DMLA `local-server/shared/llm/sftdataset.py`（对应网页 SFT 章代码块） | 仅把 `datasets.load_dataset` 换成纯 Python 逐行 `json.loads`，避免引入 `datasets`/`pyarrow`；ChatML 模板、`generate_labels` 掩码、`pre_processing_chat` 等算法逐行保留 |
-| `stage3_train.py` | 网页第 3 阶段训练代码块 | 保留 BF16 autocast、梯度累积、`get_lr` 余弦调度、梯度裁剪 1.0、周期 checkpoint、seed=42；去掉沙箱专属 `ProgressReporter` 与 `DATA_DIR` 注入，设备改 MPS，DataLoader 改单进程，checkpoint 存 FP32，增加 loss 日志与耗时校准 |
+| `stage3_train.py` | 网页第 3 阶段训练代码块 | 保留梯度累积、`get_lr` 余弦调度、梯度裁剪 1.0、周期 checkpoint、seed=42；去掉沙箱专属 `ProgressReporter` 与 `DATA_DIR` 注入，设备改为自动检测 cuda/mps/cpu、BF16 按后端能力启用，DataLoader 单进程，checkpoint FP32，增加 loss 日志与耗时校准 |
 | `stage6_sft_train.py` | 网页 SFT 章训练代码块 | 同上；保留 warmup 10% + 余弦、lr=5e-5、ChatML 与 labels 掩码 |
-| `stage0_setup.py` / `stage5_sft_data.py` | 网页「实验准备」的 `dmla data` 与文件检查 | 改为 ModelScope HTTP Range 直链下载，并按 token 长度筛出可完整放进序列的短对话 |
-| `stage1/2/4/7` 等脚本 | 对应网页各阶段演示 / 推理代码块 | 设备改 MPS、路径本地化；保留网页的 prompt 与全部采样参数 |
+| `stage0_setup.py` / `stage5_sft_data.py` | 网页「实验准备」的 `dmla data` 与文件检查 | 改为 ModelScope HTTP Range 直链下载（调用 `shared/download.py` 的标准库实现，不依赖 curl / Git LFS / Docker），并按 token 长度筛出可完整放进序列的短对话 |
+| `stage1/2/4/7` 等脚本 | 对应网页各阶段演示 / 推理代码块 | 设备改为自动检测、路径本地化；保留网页的 prompt、ChatML 模板与全部采样参数 |
 | `GUIDE.md` 中引用的网页原文与代码块说明 | DMLA 网页正文 | 引用处均标注章节链接，仅作学习对照 |
+| `shared/download.py`、`config.py`、`play_pretrain.py`、`setup.sh`、`setup.ps1`、`README.md`、`COMPARISON.md`、`examples/` | **本项目原创**（非上游改编） | 标准库 HTTP Range 下载器、配置中心与设备检测、交互续写工具、跨平台安装脚本、学习手册与逐项差异说明 |
 
-`config.py`、`play_pretrain.py`、`setup.sh`、`README.md`、`examples/` 为本项目的组织性文件；训练流程与算法思路仍来自上述网页章节。
+训练流程与算法思路仍来自上述网页章节；本项目原创部分只负责运行环境、数据获取、配置与教学组织，**不改变模型定义与训练算法**。
 
 ## 三、数据、分词器与模型权重来源
 
@@ -58,11 +59,12 @@ ModelScope 镜像仓库：
 
 ## 四、修改摘要（满足 BY 的「说明是否修改」要求）
 
-1. 运行后端由 CUDA / Docker 沙箱改为 Apple Silicon 的 PyTorch **MPS**，混合精度用 MPS 的 BF16 autocast。
+1. 运行后端由 CUDA / Docker 沙箱改为 **自动检测 CUDA > MPS > CPU**：有 N 卡走 CUDA，Apple Silicon 走 MPS，都没有则 CPU；BF16 autocast 只在后端支持时启用，CPU 与老卡保持 FP32。
 2. 数值降配：模型 13.52M（384 / 6 层）、序列 256、语料 12 万条；SFT 阶段序列 512、1.5 万条对话。等效批大小与网页保持一致（预训练 256、SFT 32）。
-3. 权重保存由 FP16 改为 FP32（MPS 部分算子不支持 FP16 权重）；DataLoader 改为 `num_workers=0`。
+3. 权重保存由 FP16 改为 FP32（跨平台互读，且 MPS/CPU 部分算子不支持 FP16 权重）；DataLoader 改为 `num_workers=0`（避开 macOS spawn 与 Windows 多进程 pickle 问题）。
 4. SFT 起点改用上游发布的官方 `pretrain_768.pth`，因为降配版预训练权重结构（384 / 6 层）与网页 SFT 章（768 / 8 层）不兼容。
-5. 增加档位预设、loss 曲线落盘、耗时校准、交互续写工具与中文学习手册。
+5. 数据获取由 `dmla data` + Git LFS 改为 Python 标准库 `urllib` 的 HTTP Range 分段采样；去掉 curl / Docker / NodeJS 等外部依赖，三个平台行为一致。
+6. 增加档位预设、设备与精度开关、loss 曲线落盘、耗时校准、交互续写工具、两套安装脚本，以及中文学习手册与逐项差异说明。
 
 ## 五、使用限制
 

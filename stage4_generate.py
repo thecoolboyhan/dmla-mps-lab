@@ -1,15 +1,16 @@
 """
 对应网页「第四阶段：推理与对话 / 文本续写」。
 
-保留网页的 4 个 prompt 和 generate 的全部采样参数，只做三处 [本机适配]：
-  · device: cuda → mps
-  · 不调用 model.half()（MPS 上部分算子不支持 FP16 权重）
+保留网页的 4 个 prompt 和 generate 的全部采样参数，只做三处 [本项目适配]：
+  · 设备自动检测 cuda / mps / cpu
+  · 不调用 model.half()（FP32 权重跨平台互读，MPS/CPU 部分算子不支持 FP16）
   · 权重路径指向 stage3 保存的 checkpoint
 另外加两个教学观察：训练前后的生成对比、loss 曲线的纯文本可视化。
 """
 import torch
 from transformers import AutoTokenizer
 
+from config import PY_CMD
 from config import (DEVICE, FINAL_CKPT, HIDDEN_SIZE, LOSS_LOG, NUM_LAYERS,
                     PRESET, SAVE_DIR, TOKENIZER_DIR, banner)
 from shared.mini_mind_config import MiniMindConfig, MiniMindForCausalLM
@@ -51,7 +52,7 @@ try:
     model.load_state_dict(weights, strict=False)
 except RuntimeError as e:
     raise SystemExit(f"权重与当前 PRESET 的模型结构不匹配，请确认训练时用的是同一个 PRESET。\n{e}")
-model = model.to(DEVICE).eval()                  # [本机适配] 网页这里是 .half().to(device)
+model = model.to(DEVICE).eval()                  # [本项目适配] 网页这里是 .half().to(device)
 print(f"  模型参数量: {sum(p.numel() for p in model.parameters())/1e6:.2f}M  |  设备 {DEVICE}")
 
 test_prompts = [
@@ -113,7 +114,7 @@ print("    不是 bug。可以回到 config.py 增大 subset_samples 或 epoch �
 print("  · 试试改 learning_rate 或数据规模，比较两条 loss 曲线 —— 这才是这一章的实验重点")
 print("\n⚠ 预训练模型只会「续写」，不会「对话」——网页第四阶段源码注释也是这么写的。")
 print("  想让模型会说话，继续跑网页下一章（SFT 模型对话实验）的降配版：")
-print("    .venv/bin/python stage5_sft_data.py")
-print("    .venv/bin/python stage6_sft_train.py")
-print("    .venv/bin/python stage7_sft_chat.py")
+print(f"    {PY_CMD} stage5_sft_data.py")
+print(f"    {PY_CMD} stage6_sft_train.py")
+print(f"    {PY_CMD} stage7_sft_chat.py")
 print("  详见 GUIDE.md 第九节。")

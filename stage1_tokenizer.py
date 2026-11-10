@@ -7,6 +7,7 @@
 """
 import json
 
+from config import PY_CMD
 from config import (DATA_DIR, MAX_SEQ_LEN, TOKENIZER_DIR, TRAIN_SUBSET, banner)
 from transformers import AutoTokenizer
 
@@ -64,4 +65,4 @@ print(f"\n  本条样本 PAD={pad_n} 个，labels 中 -100={mask_n} 个（两者
 print(f"  前 {sample_n} 条样本平均 padding 占比: {pad_total/(sample_n*MAX_SEQ_LEN)*100:.1f}%")
 print("  → padding 位置不参与 loss，但前向/反向计算照样进行；")
 print("    网页原版 seq=512 时全语料平均约 59% 的算力花在这上面")
-print("\n下一步： .venv/bin/python stage2_model.py")
+print(f"\n下一步： {PY_CMD} stage2_model.py")

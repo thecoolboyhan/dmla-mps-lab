@@ -2,7 +2,7 @@
 对应网页「工程实训：SFT 模型对话实验」的推理代码块（对话服务）。
 
 保留网页的 ChatML 模板、apply_chat_template、chat() 结构和全部采样参数，
-只做 [本机适配]：device → mps、不调用 .half()、权重指向 stage6 产物。
+只做 [本项目适配]：设备自动检测（cuda/mps/cpu）、不调用 .half()、权重指向 stage6 产物。
 
 额外加三个教学对照，把网页「SFT 使模型行为发生质变」这句话变成可观察的现象：
   A. 同一个起点权重、SFT 之前：用 BOS+文本续写，看它只会接话不会回答
@@ -14,7 +14,8 @@ from transformers import AutoTokenizer
 
 from config import (CHATML_TEMPLATE, DEVICE, SFT_BASE, SFT_BASE_CKPT,
                     SFT_FINAL_CKPT, SFT_HIDDEN, SFT_LAYERS, SFT_LOSS_LOG,
-                    SFT_OFFICIAL_SFT, SFT_SAVE_DIR, TOKENIZER_DIR, sft_banner)
+                    SFT_OFFICIAL_SFT, SFT_OFFICIAL_SFT_URL, SFT_SAVE_DIR,
+                    TOKENIZER_DIR, sft_banner)
 from shared.mini_mind_config import MiniMindConfig, MiniMindForCausalLM
 
 sft_banner()
@@ -131,9 +132,10 @@ if SFT_OFFICIAL_SFT.exists():
         print(f"回答: {chat(official, q)[:200]}")
         print("-" * 68)
 else:
-    print("  未下载。想要这条对照可执行：")
-    print(f"  curl -sSL -C - -o data/official_full_sft_768.pth "
-          f"https://www.modelscope.cn/models/icyfenix/minimind/resolve/master/sft/full_sft_768.pth")
+    print("  未下载。想要这条对照，用任意下载工具（浏览器 / curl / Python 均可）把下面地址的文件")
+    print(f"  保存到 {SFT_OFFICIAL_SFT}，再重跑本脚本：")
+    print(f"  {SFT_OFFICIAL_SFT_URL}")
+    print("  （项目不依赖任何特定下载工具，三个平台都一样）")
 
 print("\n学习检查：")
 print("  · [A] 只会顺着你的话往下续写，[B] 会识别 user/assistant 结构并给出回答")

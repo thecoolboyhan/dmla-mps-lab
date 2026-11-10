@@ -1,8 +1,11 @@
-"""
+r"""
 交互续写：用你自己 stage3 训出来的权重，输入一句话，看模型往下接什么。
 
-  .venv/bin/python play_pretrain.py                 # 进入交互
-  .venv/bin/python play_pretrain.py "人工智能是"     # 只跑一次就退出
+  <venv-python> play_pretrain.py                     # 进入交互
+  <venv-python> play_pretrain.py "人工智能是"         # 只跑一次就退出
+
+<venv-python> 在 macOS/Linux 是 .venv/bin/python，
+在 Windows PowerShell 是 .venv\Scripts\python.exe。
 
 这是**预训练 base 模型**：只会顺着你的话续写，不会回答问题，也不记得上一句。
 想让它会对话，继续跑 stage5 → stage6 → stage7（网页 SFT 章）。

@@ -4,9 +4,11 @@
 对照网页第 3 阶段「训练超参数」一节，下面每个字段都能在原文找到对应项。
 改动只发生在「数值」和「运行设备」上，训练流程与网页代码逐行一致。
 
-切换档位：  PRESET=quick .venv/bin/python stage3_train.py
+设备自动检测 CUDA / MPS / CPU，也可用 LAB_DEVICE 强制指定。
+切换档位：  PRESET=quick <venv-python> stage3_train.py
 """
 import os
+import sys
 import logging
 import warnings
 
@@ -15,8 +17,10 @@ import warnings
 warnings.filterwarnings("ignore", message="`rope_scaling` is deprecated")
 logging.getLogger("torch.distributed.elastic.multiprocessing.redirects").setLevel(logging.ERROR)
 
-# 必须在 import torch 之前设置：允许 MPS 用满统一内存，避免大 batch 被水位线误杀
-os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.0")
+# 必须在 import torch 之前设置。该变量只在 macOS 的 MPS 后端生效，
+# 在 Linux / Windows 上会被 torch 忽略，没有副作用。
+if sys.platform == "darwin":
+    os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.0")
 os.environ.setdefault("PYTHONDONTWRITEBYTECODE", "1")
 
 from pathlib import Path
@@ -31,6 +35,9 @@ for _d in (DATA_DIR, SAVE_DIR):
     if not _d.exists():
         _d.mkdir()
 
+# 脚本里「下一步」提示用的解释器路径：Windows 的 venv 布局与 POSIX 不同
+PY_CMD = r".venv\Scripts\python.exe" if os.name == "nt" else ".venv/bin/python"
+
 CORPUS_SAMPLE = DATA_DIR / "corpus_sample.jsonl"   # stage0 分段下载的原始采样池
 TRAIN_SUBSET = DATA_DIR / "train_subset.jsonl"     # stage0 随机抽样后的训练集
 TOKENIZER_DIR = DATA_DIR                            # tokenizer.json / tokenizer_config.json
@@ -42,8 +49,8 @@ CORPUS_URL = f"{BASE_URL}/pretrain_t2t_mini.jsonl"
 
 # ---------- 三档预设 ----------
 # 等效批大小恒为 256（batch_size × accumulation_steps），和网页完全一致。
-# 耗时为 Apple M5 / 8 核 GPU / 16GB 上用「网页原版代码路径」实测外推的短时峰值，
-# 无风扇机型长时间满载请按 ×1.2~1.4 估算。
+# 耗时基准是 Apple M5 / 16GB 上的实测（standard 档 86 分钟）；CUDA 机器通常更快，
+# 纯 CPU 会慢一个数量级。无风扇机型长时间满载请按 ×1.2~1.4 估算。
 PRESETS = {
     "quick": dict(
         hidden_size=256, num_hidden_layers=4,      # 4.98M 参数
@@ -88,17 +95,65 @@ GRAD_CLIP = 1.0            # 网页原值
 LOG_INTERVAL = 100         # 网页原值
 SAVE_INTERVAL = 2000       # 网页原值 1000，这里调大以免小实验产生过多 checkpoint
 SEED = 42                  # 网页原值
-NUM_WORKERS = 0            # macOS 上 spawn DataLoader 子进程容易失败，改单进程
+NUM_WORKERS = 0            # 单进程在所有平台最稳：避开 macOS spawn / Windows 多进程 pickle 问题
 EFFECTIVE_BATCH = BATCH_SIZE * ACCUMULATION_STEPS
 
 # 仅供材料自检使用：设为正整数可让 stage3 只跑 N 步，快速验证全链路
 LIMIT_STEPS = int(os.environ.get("LAB_LIMIT_STEPS", "0"))
 
-DEVICE = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-DEVICE_TYPE = "mps" if DEVICE.type == "mps" else "cpu"
 
-# 网页用 CUDA；MPS 上 BF16 autocast 实测可用且比 FP32 快约 35%，数值有限
-USE_BF16 = DEVICE_TYPE == "mps"
+# ---------- 运行设备：CUDA / MPS / CPU 自动检测 ----------
+# 优先级：NVIDIA CUDA > Apple MPS > CPU。网页原版只认 CUDA；这里让三种后端
+# 共用同一套训练脚本，模型结构、数据集、训练循环和超参完全不变。
+# LAB_DEVICE=cuda|mps|cpu 可强制指定，便于在同一台机器上做对照实验。
+def _device_flags():
+    cuda_ok = bool(torch.cuda.is_available())
+    _mps = getattr(torch.backends, "mps", None)
+    mps_ok = bool(_mps and _mps.is_available())
+    return cuda_ok, mps_ok
+
+
+def pick_device(forced: str = "") -> torch.device:
+    """单独抽成函数，方便在没有 GPU 的机器上验证后端选择逻辑。"""
+    cuda_ok, mps_ok = _device_flags()
+    forced = (forced or "").strip().lower()
+    if forced:
+        if forced not in ("cuda", "mps", "cpu"):
+            raise SystemExit(f"未知 LAB_DEVICE={forced}，可选 cuda / mps / cpu（留空则自动检测）")
+        if forced == "cuda" and not cuda_ok:
+            raise SystemExit("LAB_DEVICE=cuda，但 torch.cuda.is_available() 为 False："
+                             "请检查 NVIDIA 驱动与 torch 的 CUDA 版本是否匹配")
+        if forced == "mps" and not mps_ok:
+            raise SystemExit("LAB_DEVICE=mps，但当前 torch / 系统不支持 MPS")
+        return torch.device(forced)
+    if cuda_ok:
+        return torch.device("cuda")
+    if mps_ok:
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
+DEVICE = pick_device(os.environ.get("LAB_DEVICE", ""))
+DEVICE_TYPE = DEVICE.type
+
+
+def _bf16_supported() -> bool:
+    if DEVICE_TYPE == "cuda":
+        # Turing 及更早的卡不支持 BF16，强行 autocast 会报错
+        return bool(torch.cuda.is_bf16_supported())
+    if DEVICE_TYPE == "mps":
+        return True     # Apple Silicon 上 BF16 autocast 实测可用，比 FP32 快约 35%
+    return False        # CPU 上 BF16 反而更慢且部分算子无实现，保持 FP32
+
+
+# LAB_BF16=0/1 可手动覆盖（例如老显卡想关掉 BF16、或想做 FP32 对照实验）
+_force_bf16 = os.environ.get("LAB_BF16", "").strip().lower()
+if _force_bf16 in ("1", "true", "yes"):
+    USE_BF16 = True
+elif _force_bf16 in ("0", "false", "no"):
+    USE_BF16 = False
+else:
+    USE_BF16 = _bf16_supported()
 
 FINAL_CKPT = SAVE_DIR / f"pretrain_{PRESET}_final.pth"
 
@@ -107,6 +162,11 @@ def banner():
     print("=" * 68)
     print(f"  档位 {PRESET}  |  {P['desc']}")
     print(f"  设备 {DEVICE}  |  torch {torch.__version__}  |  BF16 autocast {USE_BF16}")
+    if DEVICE_TYPE == "cuda":
+        print(f"  GPU  {torch.cuda.get_device_name(DEVICE.index or 0)}  |  "
+              f"硬件 BF16 {torch.cuda.is_bf16_supported()}")
+    elif DEVICE_TYPE == "cpu":
+        print("  ⚠ CPU 模式：链路完全可用，但比 GPU 慢一个数量级；建议先 PRESET=quick 验证")
     print(f"  模型 {HIDDEN_SIZE}/{NUM_LAYERS}层  seq={MAX_SEQ_LEN}  "
           f"batch={BATCH_SIZE}×accum={ACCUMULATION_STEPS}={EFFECTIVE_BATCH}")
     print(f"  数据 {SUBSET_SAMPLES:,} 条 × {NUM_EPOCHS} epoch  lr={LEARNING_RATE}")
@@ -126,8 +186,8 @@ def compare_with_web():
         ("learning_rate", "5e-4", LEARNING_RATE),
         ("训练样本数", "约 127 万（全量）", f"{SUBSET_SAMPLES:,}（随机子集）"),
         ("device", "cuda", DEVICE_TYPE),
-        ("DataLoader", "pin_memory=True, num_workers=2", f"pin_memory=False, num_workers={NUM_WORKERS}"),
-        ("checkpoint", "保存为 FP16 (.half())", "保存为 FP32（MPS 部分算子不支持 FP16）"),
+        ("DataLoader", "pin_memory=True, num_workers=2", f"pin_memory=False, num_workers={NUM_WORKERS}（跨平台最稳）"),
+        ("checkpoint", "保存为 FP16 (.half())", "保存为 FP32（跨平台互读；MPS/CPU 部分算子不支持 FP16 权重）"),
     ]
     for name, web, ours in rows:
         flag = "  " if web == ours else "→ "
@@ -202,6 +262,8 @@ def sft_banner():
           f"batch={SFT_BATCH_SIZE}×accum={SFT_ACCUMULATION_STEPS}={SFT_EFFECTIVE_BATCH}"
           f"  lr={SFT_LEARNING_RATE}")
     print(f"  设备 {DEVICE}  |  BF16 autocast {USE_BF16}")
+    if DEVICE_TYPE == "cpu":
+        print("  ⚠ CPU 模式：链路可用但明显更慢；建议先用 LAB_SFT_LIMIT_STEPS=20 冒烟")
     print("=" * 68)
     if SFT_BASE == "official":
         print("  起点 = 官方 pretrain_768.pth（等价于网页第 1 章产物），可正常对话")

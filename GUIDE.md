@@ -1,27 +1,42 @@
-# 本机降配版 64M Transformer 预训练实验
+# 降配版 Transformer 预训练 / SFT 教学实验
 
-配套网页：[Transformer 模型预训练实验](https://ai.icyfenix.cn/language-models/architecture-basics/llm-pretrain-experiment.html)
+配套网页：[Transformer 模型预训练实验](https://ai.icyfenix.cn/language-models/architecture-basics/llm-pretrain-experiment.html) · [SFT 模型对话实验](https://ai.icyfenix.cn/language-models/pretraining/llm-sft-experiment.html)
 
-这套材料把网页的四个阶段搬到 Apple Silicon Mac 上按阶段重跑一遍。**模型定义、数据集、训练循环的代码来自网页原版**，只改运行设备和数值；你照着网页一节一节往下读、每节跑对应脚本即可。
+这套材料把网页两章按阶段重跑一遍。**模型定义、数据集、训练循环的代码来自网页原版**，只改运行环境与数值；照着网页一节一节往下读、每节跑对应脚本即可。
 
-网页默认沙箱是「Docker + NVIDIA GPU」，本章全部代码块被标记为 GPU-only，Mac 上点不动；这套材料走 `--native` 等价路线，用 MPS 后端，不需要 Docker。
+网页默认沙箱是「Docker + NVIDIA GPU」，相关代码块被标为 GPU-only。本项目不需要 Docker，也不绑定 CUDA：设备自动检测 **CUDA > MPS > CPU**，Apple Silicon、Linux、Windows 都能跑同一套脚本。
+
+> 与网页原版逐项差异见 **[COMPARISON.md](COMPARISON.md)**；项目定位与平台支持见 **[README.md](README.md)**。
 
 ---
 
 ## 一、准备（只需一次）
 
-**本目录已附带一份预建并验证过的 `.venv`**（torch 2.15.0 + transformers 5.22.1 + tokenizers，MPS 可用），直接跳到第二步即可，不用先安装。
+**这个仓库不含 `.venv`，也不含 `data/`**：模型权重、语料、分词器都由脚本按需联网下载。第一次使用必须依次完成下面两步。
 
-换机器、移走目录或需要重建环境时再执行：
+### 1. 建环境
 
-```bash
-cd dmla-mps-lab
-bash setup.sh                    # 建 .venv 并装依赖，不动系统 Python
-```
+| 平台 | 命令 |
+|---|---|
+| macOS / Linux | `bash setup.sh` |
+| Windows PowerShell | `powershell -ExecutionPolicy Bypass -File .\setup.ps1` |
 
-已在 Apple M5 / macOS 27 / Python 3.14 上实测通过。若你已有环境，只要 `torch.backends.mps.is_available()` 为 True 且 transformers 能 import 即可跳过。
+脚本用 `uv` 装 Python 3.14 并建隔离的 `.venv`，不动系统 Python。已有 torch + transformers 的环境可跳过（Python ≥ 3.11）。
 
-后续所有脚本都用 `.venv/bin/python` 运行。`data/` 里已放好两个分词器文件（共约 450 KB），`stage0` 只需下载语料。
+### 2. 解释器路径与环境变量
+
+| 操作 | macOS / Linux | Windows PowerShell |
+|---|---|---|
+| 解释器 | `.venv/bin/python` | `.venv\Scripts\python.exe` |
+| 跑脚本 | `.venv/bin/python stage0_setup.py` | `.venv\Scripts\python.exe stage0_setup.py` |
+| 切档位 | `PRESET=quick .venv/bin/python stage3_train.py` | `$env:PRESET="quick"; .venv\Scripts\python.exe stage3_train.py` |
+| 指定后端 | `LAB_DEVICE=cpu .venv/bin/python stage3_train.py` | `$env:LAB_DEVICE="cpu"; .venv\Scripts\python.exe stage3_train.py` |
+
+后端可以完全不管，让 `config.py` 自动选；`LAB_DEVICE` / `LAB_BF16` 只在做对照实验时才需要。脚本运行时打印的「下一步」会自动给出你平台上的正确解释器路径。
+
+**下文所有命令统一写 macOS / Linux 形式**，Windows 请按上表替换解释器路径与环境变量写法。
+
+实测基准：Apple M5 / macOS 27 / Python 3.14，standard 档 86 分钟、最终 loss 3.029。其他后端耗时不同——CUDA 通常更快，纯 CPU 慢一个数量级。
 
 ---
 
@@ -49,27 +64,27 @@ PRESET=standard .venv/bin/python stage3_train.py     # 默认档，可省略 PRE
 
 ## 二·补、照着网页一步步操作（逐代码块对照）
 
-网页本章共 **1 条终端命令 + 6 个「点击 Run」代码块**，其中 5 个标了 `data-gpu-only="true"`，在 Mac 上点不动。下表是逐个等价替换，学习动作一个不少，只是执行方式从「网页 Run」换成「本地终端」。
+网页本章共 **1 条终端命令 + 6 个「点击 Run」代码块**，其中 5 个标了 `data-gpu-only="true"`，没有 GPU 沙箱时点不动。下表是逐个等价替换，学习动作一个不少，只是执行方式从「网页 Run」换成「本地终端」。
 
-| # | 网页位置 | 网页动作 | 本机对应 | 当前状态 |
+| # | 网页位置 | 网页动作 | 本项目对应 | 说明 |
 |---|---|---|---|---|
-| 0 | 实验准备 | `dmla data`（终端命令，非 Run） | `.venv/bin/python stage0_setup.py` | ✅ 数据已备好，可跳过；重跑走缓存 |
-| 1 | 实验准备 | Run ① 文件/语料检查 | `stage0_setup.py [1/4]` 环境自检 + `stage1_tokenizer.py [1/3]` 文件检查 | ✅ 已就绪 |
-| 2 | 第一阶段 | Run ② 分词器演示（唯一非 GPU-only） | `stage1_tokenizer.py [2/3]` | ✅ 已实测 |
-| 3 | 第一阶段 | Run ③ `PretrainDataset` 类定义 | 读 `shared/pretrain_dataset.py`，用 `stage1_tokenizer.py [3/3]` 观察一条样本 | ✅ 已就绪（网页也注明无需单独执行） |
-| 4 | 第二阶段 | Run ④ 模型类定义 | 读 `shared/mini_mind_config.py`，跑 `stage2_model.py` | ✅ 已实测 |
-| 5 | 第三阶段 | Run ⑤ 预训练（`data-timeout="unlimited"`） | `.venv/bin/python stage3_train.py` | ⬜ **唯一需要你动手跑的长任务** |
-| 6 | 第四阶段 | Run ⑥ 推理续写 | `.venv/bin/python stage4_generate.py` | ⬜ 依赖第 5 步产物 |
-| 7 | 实验结论 / 运行结果 | 读网页的 loss 曲线与生成示例 | 看 `loss_log.tsv` + stage4 输出 + 本手册第五节验收清单 | ⬜ 人工对照 |
+| 0 | 实验准备 | `dmla data`（终端命令，非 Run） | `<venv-python> stage0_setup.py` | 首次运行需联网下载约 160 MB；已有缓存自动跳过 |
+| 1 | 实验准备 | Run ① 文件/语料检查 | `stage0_setup.py [1/4]` 环境自检 + `stage1_tokenizer.py [1/3]` 文件检查 | 自检会显示实际选中的后端 |
+| 2 | 第一阶段 | Run ② 分词器演示（唯一非 GPU-only） | `stage1_tokenizer.py [2/3]` | 无需 GPU |
+| 3 | 第一阶段 | Run ③ `PretrainDataset` 类定义 | 读 `shared/pretrain_dataset.py`，用 `stage1_tokenizer.py [3/3]` 观察一条样本 | 以读源码为主（网页也注明无需单独执行） |
+| 4 | 第二阶段 | Run ④ 模型类定义 | 读 `shared/mini_mind_config.py`，跑 `stage2_model.py` | 参数量手算与显存重算 |
+| 5 | 第三阶段 | Run ⑤ 预训练（`data-timeout="unlimited"`） | `<venv-python> stage3_train.py` | **唯一需要长时间运行的步骤** |
+| 6 | 第四阶段 | Run ⑥ 推理续写 | `<venv-python> stage4_generate.py` | 依赖第 5 步产物 |
+| 7 | 实验结论 / 运行结果 | 读网页的 loss 曲线与生成示例 | 看 `loss_log.tsv` + stage4 输出 + 本手册第五节验收清单 | 人工对照 |
 
 ### 逐步操作
 
 **第 0 步 · 实验准备**（网页「实验准备」）
 ```bash
 cd dmla-mps-lab
-.venv/bin/python stage0_setup.py        # 已备好数据，可跳过；重跑不会重复下载
+<venv-python> stage0_setup.py        # 首次运行下载数据；重跑走缓存，不会重复下载
 ```
-看什么：torch / transformers / MPS 是否可用；语料 token 长度 p50/p90；`有效 token 保留率` 与 `padding 计算浪费`。产物：`data/corpus_sample.jsonl`(160M)、`data/train_subset.jsonl`(103M，12 万条)、两个分词器文件。
+看什么：torch / transformers 版本、自动选中的后端（CUDA / MPS / CPU）；语料 token 长度 p50/p90；`有效 token 保留率` 与 `padding 计算浪费`。产物：`data/corpus_sample.jsonl`(160M)、`data/train_subset.jsonl`(103M，12 万条)、两个分词器文件。
 验收：能说清为什么网页 `seq=512` 时约 59% 算力花在 padding 上。
 
 **第 1 步 · 分词器**（网页「第一阶段：分词器与数据加载」，Run ② ③）
@@ -118,7 +133,7 @@ ls -lh checkpoints/
 | 点 6 次「Run」按钮（GPU 沙箱） | 终端跑 5 个脚本 | 无，学习动作等价 |
 | `dmla data` 下全量 1.2GB + Git LFS | HTTP Range 采样 160MB | 数据分布更窄，教学环节无影响 |
 | 768/8 层、127 万条 ×2 epoch | 384/6 层、12 万条 ×2 epoch | **实测 loss 3.03**，达不到网页 1.85 |
-| Docker + CUDA + FlashAttention 路径 | MPS + BF16 autocast | 无 CUDA 算子，训练时间量级不同 |
+| Docker + CUDA + FlashAttention 路径 | 自动 CUDA / MPS / CPU + PyTorch SDPA | 不依赖 CUDA 专属算子，单步耗时按后端差异很大 |
 
 ### 切档位的三个注意点
 
@@ -130,7 +145,7 @@ ls -lh checkpoints/
 
 ## 三、三档预设
 
-三档的**等效批大小恒为 256**（`batch_size × accumulation_steps`），与网页一致，训练语义不变。耗时是在本机用网页原版代码路径实测外推的短时峰值；MacBook Air 无风扇，长时间满载按 ×1.2–1.4 估。
+三档的**等效批大小恒为 256**（`batch_size × accumulation_steps`），与网页一致，训练语义不变。表中耗时是 Apple M5 上的实测 / 外推基准；CUDA 机器通常更快，纯 CPU 慢一个数量级。无风扇 MacBook Air 长时间满载按 ×1.2–1.4 估。
 
 | 档位 | 模型 | 参数量 | seq | batch×accum | 数据 | epoch | 峰值耗时 | 预期 |
 |---|---|---:|---:|---|---|---:|---:|---|
@@ -153,13 +168,13 @@ ls -lh checkpoints/
 | batch / accum | 32 / 8 | 16 / 16 | **等效批仍 256**，效果等价，只是更频繁累积梯度 |
 | 训练样本 | 约 127 万 × 2 epoch | 12 万 × 2 epoch | 控制在 2 小时量级 |
 | lr | 5e-4 | 1e-3 | 小模型收敛更快（faithful 档仍用 5e-4） |
-| device | cuda | **mps** | Apple Silicon |
-| autocast | `device_type="cuda"`, BF16 | `device_type="mps"`, BF16 | MPS 实测可用，比 FP32 快约 35% |
-| DataLoader | `pin_memory=True, num_workers=2` | `False, 0` | macOS spawn 子进程易失败 |
-| checkpoint | `.half().cpu()` | `.float().cpu()` | MPS 部分算子不支持 FP16 权重 |
+| device | cuda | **自动 cuda / mps / cpu** | 按机器检测；`LAB_DEVICE` 可强制指定 |
+| autocast | `device_type="cuda"`, BF16 | 后端支持 BF16 时启用 | MPS 与支持 BF16 的 N 卡用 BF16；CPU / 老卡保持 FP32 |
+| DataLoader | `pin_memory=True, num_workers=2` | `False, 0` | 单进程跨平台最稳，避开 macOS spawn / Windows 多进程 |
+| checkpoint | `.half().cpu()` | `.float().cpu()` | FP32 跨平台互读；MPS/CPU 部分算子不支持 FP16 权重 |
 | 进度/路径 | `ProgressReporter`、`DATA_DIR` 注入 | 普通 print、本地相对路径 | 脱离沙箱 |
 
-**没改的**：模型结构、数据集类、BF16 混合精度、余弦调度、梯度裁剪 1.0、梯度累积逻辑、周期保存、seed=42、以及 stage4 的采样参数。
+**没改的**：模型结构、数据集类、余弦调度、梯度裁剪 1.0、梯度累积逻辑、周期保存、seed=42、以及 stage4 的采样参数。混合精度只在后端支持时启用，调度与累积的算法本身未变。
 
 ---
 
@@ -193,12 +208,13 @@ ls -lh checkpoints/
 
 | 现象 | 处理 |
 |---|---|
-| `MPS 可用 False` | 用 `setup.sh` 建的环境；确认 macOS 与 torch 版本；别在 Rosetta/x86 终端里跑 |
-| 训练中途 OOM | `PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0` 已在 `config.py` 设好；仍不行就把 `batch_size` 减半、`accumulation_steps` 加倍 |
-| 出现非有限 loss | 脚本会主动中断；把 `learning_rate` 减半，或临时设 `USE_BF16=False` 用 FP32 |
-| 速度与预估不符 | 合盖/接电状态、后台程序、热降频都会影响；第 200 步脚本会打印实测外推的全程耗时 |
+| 退到 CPU、速度极慢 | 看 banner 里的「CUDA 可用 / MPS 可用」；N 卡确认驱动与 torch CUDA 版本匹配，Mac 别在 Rosetta/x86 终端里跑。纯 CPU 请先 `PRESET=quick` |
+| 训练中途 OOM | MPS 的 `PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0` 已自动设置；CUDA 可在 `config.py` 把 `BATCH_SIZE` 减半、`ACCUMULATION_STEPS` 加倍（等效批仍 256） |
+| 出现非有限 loss | 脚本会主动中断；把 `LEARNING_RATE` 减半，或临时设 `LAB_BF16=0` 用 FP32 |
+| 速度与预估不符 | 接电状态、后台程序、热降频都会影响；第 200 步脚本会打印实测外推的全程耗时 |
 | `stage4` 提示权重结构不匹配 | 训练和生成必须用同一个 `PRESET`，否则 hidden_size/layers 对不上 |
-| 不要合盖 | macOS 合盖休眠会中断训练；长时间跑请接电并关闭休眠 |
+| Windows 找不到 `.venv/bin/python` | 用 `setup.ps1`，解释器是 `.venv\Scripts\python.exe`；脚本自动打印的提示已按平台给出 |
+| 长时间训练中断 | 请接电并关闭休眠；macOS 合盖会直接中断训练 |
 
 ---
 
@@ -304,15 +320,15 @@ ln(6400)≈8.76，因为起点已是会说话的模型，且只有回答部分�
 | batch / accum | 16 / 2 | 8 / 4 | **等效批仍 32** |
 | `learning_rate` | 5e-5 | 5e-5（不变） | 低一个数量级，避免灾难性遗忘 |
 | warmup + 余弦 | 10% + 余弦 | 不变 | 网页原函数 |
-| device / DataLoader | cuda / 2 workers | mps / 0 workers | macOS spawn 易失败 |
-| checkpoint | FP16 `.half()` | FP32 | MPS 部分算子不支持 FP16 权重 |
+| device / DataLoader | cuda / 2 workers | 自动 cuda/mps/cpu / 0 workers | 单进程跨平台最稳 |
+| checkpoint | FP16 `.half()` | FP32 | 跨平台互读；MPS/CPU 部分算子不支持 FP16 权重 |
 
 **没改的**：ChatML 模板、`apply_chat_template`、`generate_labels` 掩码逻辑、
 `pre_processing_chat`、AdamW、梯度裁剪 1.0、梯度累积、周期保存、seed=42、
 以及 stage7 的全部采样参数。
 
 `shared/sft_dataset.py` 只有一处适配：网页用 `datasets.load_dataset` 读 JSONL，
-本机 `.venv` 没装 `datasets`（会连带 pyarrow 等重依赖），换成纯 Python 逐行 `json.loads`；
+本项目不引入 `datasets`（会连带 pyarrow 等重依赖），换成纯 Python 逐行 `json.loads`；
 算法部分与网页逐行一致。
 
 ### 实测依据
@@ -352,7 +368,7 @@ ln(6400)≈8.76，因为起点已是会说话的模型，且只有回答部分�
 ### 想要一个真正好用的助手
 
 这套材料的终点是**教学用的 64M 小模型**，语言流畅、会对话，但知识与推理有限。
-若要日常可用，直接在本机 MPS 上跑现成小模型（如 Qwen3.5-0.8B-Instruct），
+若要日常可用，直接加载现成小模型（如 Qwen3.5-0.8B-Instruct），
 那属于网页「模型服务化」章节，不在本实验范围内。
 
 ---

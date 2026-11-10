@@ -18,6 +18,9 @@ sft_checkpoints/
 *.bin
 *.onnx
 
+# ---- 下载器中断时留下的临时分片 ----
+*.part
+
 # ---- 运行日志 / loss 曲线（仓库自带 examples/ 下的样例）----
 loss_log.tsv
 sft_loss_log.tsv

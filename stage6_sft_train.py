@@ -1,12 +1,12 @@
 """
 对应网页「工程实训：SFT 模型对话实验」的训练代码块。
 
-训练循环与网页逐行对应，只改下面这些 [本机适配] 项：
+训练循环与网页逐行对应，只改下面这些 [本项目适配] 项：
   · 去掉沙箱专属 ProgressReporter / DATA_DIR 注入
-  · device: cuda → mps；autocast device_type 同步改
-  · DataLoader: pin_memory=False, num_workers=0（macOS spawn 易失败）
-  · 数据用 stage5 筛过的短对话子集；seq 768 → 256
-  · checkpoint 保存为 FP32（MPS 部分算子不支持 FP16 权重）
+  · 设备自动检测 cuda / mps / cpu；BF16 autocast 按后端能力决定
+  · DataLoader: pin_memory=False, num_workers=0（跨平台最稳）
+  · 数据用 stage5 筛过的短对话子集；seq 768 → 512
+  · checkpoint 存 FP32（跨平台互读；MPS/CPU 部分算子不支持 FP16 权重）
   · 增加 loss 曲线落盘、有限值断言、200 步耗时校准
 
 保留（一个没动）：ChatML / labels 掩码、加载 pretrain 权重作为起点、
@@ -22,6 +22,7 @@ from contextlib import nullcontext
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 
+from config import PY_CMD
 from config import (CHATML_TEMPLATE, DEVICE, DEVICE_TYPE, FINAL_CKPT,
                     SEED, SFT_ACCUMULATION_STEPS, SFT_BASE,
                     SFT_BATCH_SIZE, SFT_EFFECTIVE_BATCH, SFT_FINAL_CKPT,
@@ -52,7 +53,7 @@ print(f"训练样本数: {len(train_ds):,}")
 
 train_loader = DataLoader(
     train_ds, batch_size=SFT_BATCH_SIZE, shuffle=True,
-    num_workers=0, pin_memory=False, drop_last=True,     # [本机适配]
+    num_workers=0, pin_memory=False, drop_last=True,     # [本项目适配]
 )
 steps_per_epoch = len(train_loader)
 full_total_steps = SFT_NUM_EPOCHS * steps_per_epoch
@@ -78,7 +79,7 @@ if missing or unexpected:
     raise SystemExit("权重结构与模型不匹配：official 档需 768/8 层，local 档需与 stage3 同一个 PRESET")
 del weights
 print(f"  模型参数量 {sum(p.numel() for p in model.parameters())/1e6:.2f}M "
-      f"| 权重已自动转为 FP32（MPS 上不使用 .half()）")
+      f"| 权重以 FP32 加载（不使用 .half()，跨平台互读）")
 model = model.to(device)
 
 # ========== 4. 配置训练组件 ==========
@@ -113,7 +114,7 @@ calibrated = False
 
 
 def save_ckpt(name):
-    # [本机适配] 网页存 FP16；MPS 上 FP16 权重有算子不支持，改存 FP32
+    # [本项目适配] 网页存 FP16；改存 FP32 以便跨平台互读（MPS/CPU 部分算子不支持 FP16 权重）
     path = SAVE_DIR / f"sft_{SFT_BASE}_{name}.pth"
     state_dict = {k: v.detach().float().cpu() for k, v in model.state_dict().items()}
     torch.save(state_dict, path)
@@ -197,4 +198,4 @@ torch.save(state_dict, SFT_FINAL_CKPT)
 print(f"\nSFT 完成：{global_step} 步 / {(time.time()-train_start)/60:.1f} 分钟")
 print(f"最终权重: {SFT_FINAL_CKPT}")
 print(f"loss 曲线: {SFT_LOSS_LOG}")
-print("\n下一步： .venv/bin/python stage7_sft_chat.py")
+print(f"\n下一步： {PY_CMD} stage7_sft_chat.py")

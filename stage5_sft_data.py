@@ -8,17 +8,19 @@
   2. 按 token 长度筛出「一问一答能完整放进 seq」的样本，再随机抽子集
   3. 展示 ChatML 格式与 labels 掩码 —— 本章最核心的教学点
 
-[本机适配] 只改下载方式（HTTP 直链代替 dmla data / Git LFS）与序列长度，
+[本项目适配] 只改下载方式（标准库 HTTP 直链代替 dmla data / Git LFS）与序列长度，
 SFTDataset 的算法在 shared/sft_dataset.py 里与网页逐行一致。
+下载器在 shared/download.py，不依赖 curl，macOS / Linux / Windows 一致。
 """
 import json
 import random
-import subprocess
 import sys
 
-from config import (CHATML_TEMPLATE, SFT_BASE, SFT_CORPUS, SFT_CORPUS_URL,
-                    SFT_MAX_SEQ_LEN, SFT_OFFICIAL_PRETRAIN, SFT_OFFICIAL_PRETRAIN_URL,
+from config import (CHATML_TEMPLATE, DEVICE, DEVICE_TYPE, PY_CMD, SFT_BASE,
+                    SFT_CORPUS, SFT_CORPUS_URL, SFT_MAX_SEQ_LEN,
+                    SFT_OFFICIAL_PRETRAIN, SFT_OFFICIAL_PRETRAIN_URL,
                     SFT_SAMPLES, SFT_SUBSET, TOKENIZER_DIR, sft_banner)
+from shared.download import fetch as http_fetch
 from transformers import AutoTokenizer
 
 random.seed(42)
@@ -29,18 +31,19 @@ def download(url, out, label):
         print(f"  [已有] {label:28s} {out.stat().st_size/1024/1024:7.1f} MB")
         return
     print(f"  [下载] {label} ...", flush=True)
-    r = subprocess.run(["curl", "-sSL", "--max-time", "300", "-o", str(out),
-                        "-w", "%{http_code}", url], capture_output=True, text=True)
-    code = r.stdout.strip()
-    if code not in ("200", "206") or not out.exists() or out.stat().st_size < 1024:
-        if out.exists():
-            out.unlink()
-        raise SystemExit(f"下载失败: HTTP {code} {r.stderr.strip()}")
+    try:
+        code = http_fetch(url, out)
+    except Exception as e:
+        out.unlink(missing_ok=True)
+        raise SystemExit(f"下载失败: {type(e).__name__}: {e}；请检查网络或代理设置")
+    if code not in (200, 206) or not out.exists() or out.stat().st_size < 1024:
+        out.unlink(missing_ok=True)
+        raise SystemExit(f"下载失败: HTTP {code}；请检查网络或代理设置")
     print(f"  [完成] {label:28s} {out.stat().st_size/1024/1024:7.1f} MB")
 
 
 def build_subset():
-    """网页用全量 5 万条 + seq=768；本机 seq=256，必须丢掉会被截断的长对话，
+    """网页用全量 5 万条 + seq=768；本项目 seq=512，必须丢掉会被截断的长对话，
     否则 assistant 回答被切一半，labels 里学不到完整的「回答该怎么收尾」。"""
     tok = AutoTokenizer.from_pretrained(str(TOKENIZER_DIR))
     lines = SFT_CORPUS.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -81,7 +84,8 @@ def main():
     print("[1/4] 环境自检")
     import torch
     from config import DEVICE
-    print(f"  Python {sys.version.split()[0]} | torch {torch.__version__} | 设备 {DEVICE}")
+    print(f"  Python {sys.version.split()[0]} | torch {torch.__version__} | "
+          f"后端 {DEVICE_TYPE.upper()} ({DEVICE})")
 
     print("\n[2/4] 下载 SFT 语料与起点权重（对应网页 `dmla data` 与第 1 章产物）")
     download(SFT_CORPUS_URL, SFT_CORPUS, "sft_t2t_tiny.jsonl")
@@ -114,7 +118,7 @@ def main():
     print("    模型因此学会「用户说什么不用预测，只需在 assistant 位置给出回答」。")
     print("  → 这一步就是网页所说「从续写到对话的转变」的机制来源。")
 
-    print("\n准备完成。下一步： .venv/bin/python stage6_sft_train.py")
+    print(f"\n准备完成。下一步： {PY_CMD} stage6_sft_train.py")
     print("（建议同时打开网页『SFT 模型对话实验』对照阅读）")
 
 

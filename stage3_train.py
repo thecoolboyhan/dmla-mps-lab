@@ -1,10 +1,10 @@
 """
 对应网页「第三阶段：预训练」。训练循环与网页代码块逐行对应，
-只改动下面这些「运行环境」相关的部分（每项都标了 [本机适配]）：
+只改动下面这些「运行环境」相关的部分（每项都标了 [本项目适配]）：
   · 去掉沙箱专属的 ProgressReporter / DATA_DIR 注入
-  · device: cuda → mps；autocast device_type 同步改
-  · DataLoader: pin_memory=False, num_workers=0（macOS spawn 易失败）
-  · checkpoint 保存改为 FP32（MPS 部分算子不支持 FP16 权重）
+  · 设备自动检测 cuda / mps / cpu；BF16 autocast 按后端能力决定
+  · DataLoader: pin_memory=False, num_workers=0（跨平台最稳）
+  · checkpoint 存 FP32（跨平台互读；MPS/CPU 部分算子不支持 FP16 权重）
   · 增加 loss 曲线落盘、有限值断言、200 步耗时校准
 
 保留（一个没动）：BF16 混合精度、梯度累积、余弦学习率、
@@ -19,6 +19,7 @@ from contextlib import nullcontext
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 
+from config import PY_CMD
 from config import (ACCUMULATION_STEPS, BATCH_SIZE, DEVICE, DEVICE_TYPE, FINAL_CKPT,
                     GRAD_CLIP, HIDDEN_SIZE, LEARNING_RATE, LIMIT_STEPS, LOG_INTERVAL,
                     LOSS_LOG, MAX_SEQ_LEN, NUM_EPOCHS, NUM_LAYERS, NUM_WORKERS,
@@ -31,7 +32,7 @@ banner()
 compare_with_web()
 
 # ========== 1. 初始化环境 ==========
-device = DEVICE                                     # [本机适配] 原为 cuda if available else cpu
+device = DEVICE                                     # 网页是 cuda if available else cpu；本项目自动检测三种后端
 print(f"[1/5] 设备: {device}  |  BF16 autocast: {USE_BF16}")
 torch.manual_seed(SEED)
 
@@ -43,7 +44,7 @@ print(f"训练样本数: {len(train_ds):,}")
 
 train_loader = DataLoader(
     train_ds, batch_size=BATCH_SIZE, shuffle=True,
-    num_workers=NUM_WORKERS, pin_memory=False, drop_last=True   # [本机适配]
+    num_workers=NUM_WORKERS, pin_memory=False, drop_last=True   # [本项目适配]
 )
 total_steps_per_epoch = len(train_loader)
 full_total_steps = NUM_EPOCHS * total_steps_per_epoch      # 完整训练应有的步数
@@ -63,7 +64,7 @@ print(f"模型参数量: {total_params:,} ({total_params/1e6:.2f}M)")
 
 # ========== 4. 配置训练组件 ==========
 print("[4/5] 配置优化器和学习率调度 ...")
-# [本机适配] 网页是 cuda → autocast(bf16)，cpu → nullcontext；MPS 同样支持 bf16 autocast
+# [本项目适配] 网页是 cuda → autocast(bf16)，cpu → nullcontext；MPS 同样支持 bf16 autocast
 autocast_ctx = (torch.amp.autocast(DEVICE_TYPE, dtype=torch.bfloat16)
                 if USE_BF16 else nullcontext())
 optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE)
@@ -89,7 +90,7 @@ calibrated = False
 
 
 def save_ckpt(name):
-    # [本机适配] 网页用 v.half().cpu()；MPS 上 FP16 权重有算子不支持，改存 FP32
+    # [本项目适配] 网页用 v.half().cpu()；改存 FP32 以便跨平台互读（MPS/CPU 部分算子不支持 FP16 权重）
     path = SAVE_DIR / f"pretrain_{PRESET}_{name}.pth"
     state_dict = {k: v.detach().float().cpu() for k, v in model.state_dict().items()}
     torch.save(state_dict, path)
@@ -175,4 +176,4 @@ torch.save(state_dict, FINAL_CKPT)
 print(f"训练结束：{global_step} 步 / {(time.time()-train_start)/60:.1f} 分钟")
 print(f"最终权重: {FINAL_CKPT}")
 print(f"loss 曲线: {LOSS_LOG}")
-print("\n下一步： .venv/bin/python stage4_generate.py")
+print(f"\n下一步： {PY_CMD} stage4_generate.py")
