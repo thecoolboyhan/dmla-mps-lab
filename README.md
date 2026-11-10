@@ -45,7 +45,7 @@ DMLA 网页的这两个实验默认跑在「Docker + NVIDIA GPU」沙箱里：�
 ## 三、快速开始
 
 ```bash
-git clone <你的仓库地址>
+git clone https://github.com/thecoolboyhan/dmla-mps-lab.git
 cd dmla-mps-lab
 
 bash setup.sh                       # 建 .venv，装 torch / transformers，不动系统 Python
